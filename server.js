@@ -19,7 +19,7 @@ const foodDescriptions = {
 };
 
 // In-memory carts (per session)
-const carts = new Map(); // sessionId -> [{item, qty}, ...]
+const carts = new Map(); // sessionId -> [{ item, qty }, ...]
 
 function getSessionId(req) {
   const full = (req.body && req.body.session) ? req.body.session : '';
@@ -35,22 +35,34 @@ function addToCart(sessionId, item, qty = 1) {
   carts.set(sessionId, cart);
 }
 
+function removeFromCart(sessionId, item, qty = null) {
+  const cart = carts.get(sessionId) || [];
+  const idx = cart.findIndex(r => r.item === item);
+  if (idx === -1) return { removed: 0, cart };
+  if (qty === null || qty >= cart[idx].qty) {
+    const removedQty = cart[idx].qty;
+    cart.splice(idx, 1);
+    carts.set(sessionId, cart);
+    return { removed: removedQty, cart };
+  } else {
+    cart[idx].qty -= qty;
+    carts.set(sessionId, cart);
+    return { removed: qty, cart };
+  }
+}
+
 function cartSummary(sessionId) {
   const cart = carts.get(sessionId) || [];
   if (cart.length === 0) return 'Your cart is empty.';
   return cart.map(r => `${r.qty} x ${r.item}`).join(', ');
 }
 
+// ✅ Single webhook handler
 app.post('/webhook', (req, res) => {
   try {
-    // Log everything for debugging (watch on Render → Logs)
-    console.log('=== Incoming DF payload ===');
-    try { console.log(JSON.stringify(req.body)); } catch(_) {}
-
     // Safe reads
     const body = (req && req.body) ? req.body : {};
-    const session = (body.session || 'default') + '';
-    const sessionId = (session.split('/sessions/')[1]) || session || 'default';
+    const sessionId = getSessionId(req);
 
     const qr = body.queryResult || {};
     const intent = (qr.intent && qr.intent.displayName) ? qr.intent.displayName : '';
@@ -87,50 +99,57 @@ app.post('/webhook', (req, res) => {
         ? `Here's what I know about ${food}: ${answer}`
         : `I'm sorry, I don't have information about ${food || 'that item'}.`;
     }
+
     else if (intent === 'Order.Food') {
       if (!foodDescriptions[food]) {
         responseText = `I couldn't recognize the item. Could you say the sushi item again?`;
       } else {
-        // simple in-memory cart map (lives for process lifetime)
-        globalThis.__carts = globalThis.__carts || new Map();
-        const carts = globalThis.__carts;
-
-        const cart = carts.get(sessionId) || [];
-        const existing = cart.find(r => r.item === food);
-        if (existing) existing.qty += quantity;
-        else cart.push({ item: food, qty: quantity });
-        carts.set(sessionId, cart);
-
-        const summary = cart.map(r => `${r.qty} x ${r.item}`).join(', ');
-        responseText = `Added ${quantity} x ${food} to your order. Current order: ${summary}. Would you like anything else?`;
+        addToCart(sessionId, food, quantity);
+        responseText = `Added ${quantity} x ${food} to your order. Current order: ${cartSummary(sessionId)}. Would you like anything else?`;
       }
     }
+
+    else if (intent === 'Order.Remove') {
+      const remQtyRaw = params.quantity ?? params.number ?? params.amount ?? params.qty ?? null;
+      const remQty =
+        (typeof remQtyRaw === 'number' && isFinite(remQtyRaw))
+          ? remQtyRaw
+          : (Number(remQtyRaw) || null);
+
+      if (!food) {
+        responseText = `Which item should I remove?`;
+      } else {
+        const { removed } = removeFromCart(sessionId, food, remQty);
+        if (removed === 0) {
+          responseText = `I couldn’t find ${food} in your order. Current order: ${cartSummary(sessionId)}.`;
+        } else {
+          responseText = `Removed ${remQty ?? removed} x ${food}. Current order: ${cartSummary(sessionId)}.`;
+        }
+      }
+    }
+
     else if (intent === 'Order.Confirm') {
-      globalThis.__carts = globalThis.__carts || new Map();
-      const carts = globalThis.__carts;
-      const cart = carts.get(sessionId) || [];
-      if (cart.length === 0) {
+      const summary = cartSummary(sessionId);
+      if (summary === 'Your cart is empty.') {
         responseText = `I don't see anything in your order yet. What would you like to have?`;
       } else {
-        const summary = cart.map(r => `${r.qty} x ${r.item}`).join(', ');
         responseText = `Awesome! 🐼 Your order is confirmed: ${summary}. Enjoy! 🥢`;
-        carts.delete(sessionId);
+        carts.delete(sessionId); // clear after confirmation
       }
     }
+
     else {
       responseText = `Got it. How can I help with your sushi order?`;
     }
 
     return res.json({ fulfillmentMessages: [{ text: { text: [responseText] } }] });
   } catch (e) {
-    // For debugging, include the error message so we can see it in DF
     console.error('Webhook error:', e);
     return res.json({
-      fulfillmentMessages: [{ text: { text: ["Error: " + (e && e.message ? e.message : "unknown")] } }]
+      fulfillmentMessages: [{ text: { text: ["(Webhook) Unexpected error. Check server logs."] } }]
     });
   }
 });
-
 
 // Start server (must be last)
 const PORT = process.env.PORT || 3000;
