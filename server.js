@@ -23,6 +23,29 @@ const foodDescriptions = {
 const carts = new Map(); // sessionId -> [{item, qty}, ...]
 
 function getSessionId(req) {
+  const full = (req.body && req.body.session) ? req.body.session : '';
+  const parts = full.split('/sessions/');
+  return parts[1] || full || 'default';
+}
+
+function addToCart(sessionId, item, qty = 1) {
+  const cart = carts.get(sessionId) || [];
+  const existing = cart.find(r => r.item === item);
+  if (existing) existing.qty += qty;
+  else cart.push({ item, qty });
+  carts.set(sessionId, cart);
+}
+
+function cartSummary(sessionId) {
+  const cart = carts.get(sessionId) || [];
+  if (cart.length === 0) return 'Your cart is empty.';
+  return cart.map(r => `${r.qty} x ${r.item}`).join(', ');
+}
+
+
+const carts = new Map(); // sessionId -> [{item, qty}, ...]
+
+function getSessionId(req) {
   const full = req.body?.session || '';
   const parts = full.split('/sessions/');
   return parts[1] || full;
