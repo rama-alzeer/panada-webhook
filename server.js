@@ -20,27 +20,60 @@ const foodDescriptions = {
   "green tea": "Green tea is a traditional Japanese drink. It's vegan and caffeine-rich."
 };
 
-const carts = new Map(); // sessionId -> [{item, qty}, ...]
+app.post('/webhook', (req, res) => {
+  try {
+    const sessionId = getSessionId(req);
+    const qr = (req.body && req.body.queryResult) ? req.body.queryResult : {};
+    const intent = (qr.intent && qr.intent.displayName) ? qr.intent.displayName : '';
+    const originalText = (qr.queryText || '').toLowerCase();
+    const params = qr.parameters || {};
 
-function getSessionId(req) {
-  const full = (req.body && req.body.session) ? req.body.session : '';
-  const parts = full.split('/sessions/');
-  return parts[1] || full || 'default';
-}
+    let food = (params.food_item || '').toString().toLowerCase().trim();
+    const qRaw = params.quantity;
+    const quantity = (typeof qRaw === 'number' && isFinite(qRaw)) ? qRaw : Number(qRaw) || 1;
 
-function addToCart(sessionId, item, qty = 1) {
-  const cart = carts.get(sessionId) || [];
-  const existing = cart.find(r => r.item === item);
-  if (existing) existing.qty += qty;
-  else cart.push({ item, qty });
-  carts.set(sessionId, cart);
-}
+    // Safety net: try to correct mis-tags from user text
+    const knownItems = Object.keys(foodDescriptions);
+    const directHit = knownItems.find(k => originalText.includes(k));
+    if (directHit) food = directHit;
+    if (!food) {
+      const single = knownItems.find(k => originalText.includes(k.split(' ').slice(-1)[0]));
+      if (single) food = single;
+    }
 
-function cartSummary(sessionId) {
-  const cart = carts.get(sessionId) || [];
-  if (cart.length === 0) return 'Your cart is empty.';
-  return cart.map(r => `${r.qty} x ${r.item}`).join(', ');
-}
+    let responseText = 'Okay.';
+
+    if (intent === 'Ask.About.Food') {
+      const answer = foodDescriptions[food];
+      responseText = answer
+        ? `Here's what I know about ${food}: ${answer}`
+        : `I'm sorry, I don't have information about ${food}.`;
+    } else if (intent === 'Order.Food') {
+      if (!foodDescriptions[food]) {
+        responseText = `I couldn't recognize the item. Could you say the sushi item again?`;
+      } else {
+        addToCart(sessionId, food, quantity);
+        responseText = `Added ${quantity} x ${food} to your order. Current order: ${cartSummary(sessionId)}. Would you like anything else?`;
+      }
+    } else if (intent === 'Order.Confirm') {
+      const summary = cartSummary(sessionId);
+      if (summary === 'Your cart is empty.') {
+        responseText = `I don't see anything in your order yet. What would you like to have?`;
+      } else {
+        responseText = `Awesome! 🐼 Your order is confirmed: ${summary}. Enjoy! 🥢`;
+        carts.delete(sessionId); // clear after confirmation
+      }
+    } else {
+      responseText = `Got it. How can I help with your sushi order?`;
+    }
+
+    return res.json({ fulfillmentMessages: [{ text: { text: [responseText] } }] });
+  } catch (e) {
+    console.error('Webhook error:', e);
+    return res.json({ fulfillmentMessages: [{ text: { text: ["Oops, something went wrong. Please try again."] } }] });
+  }
+});
+
 
 
 const carts = new Map(); // sessionId -> [{item, qty}, ...]
