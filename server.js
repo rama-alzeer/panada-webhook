@@ -16,6 +16,8 @@ const foodDescriptions = {
   "edamame": "Edamame are steamed soybeans. They're vegan, gluten-free, and healthy.",
   "green tea": "Green tea is a traditional Japanese drink. It's vegan and caffeine-rich."
 };
+// Optional: allow GET on /webhook so you can sanity-check in a browser
+app.get('/webhook', (req, res) => res.send('Panada webhook endpoint is up (use POST for Dialogflow)'));
 
 app.post('/webhook', (req, res) => {
   try {
