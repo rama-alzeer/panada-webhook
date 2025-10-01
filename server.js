@@ -41,30 +41,41 @@ function cartSummary(sessionId) {
   return cart.map(r => `${r.qty} x ${r.item}`).join(', ');
 }
 
-// ✅ Single webhook handler
 app.post('/webhook', (req, res) => {
   try {
-    const sessionId = getSessionId(req);
-    const qr = (req.body && req.body.queryResult) ? req.body.queryResult : {};
+    // Log everything for debugging (watch on Render → Logs)
+    console.log('=== Incoming DF payload ===');
+    try { console.log(JSON.stringify(req.body)); } catch(_) {}
+
+    // Safe reads
+    const body = (req && req.body) ? req.body : {};
+    const session = (body.session || 'default') + '';
+    const sessionId = (session.split('/sessions/')[1]) || session || 'default';
+
+    const qr = body.queryResult || {};
     const intent = (qr.intent && qr.intent.displayName) ? qr.intent.displayName : '';
-    const originalText = (qr.queryText || '').toLowerCase();
+    const originalText = ((qr.queryText || '') + '').toLowerCase();
     const params = qr.parameters || {};
 
-    // Accept different possible param names for quantity
-    const quantityRaw = params.quantity ?? params.number ?? params.amount ?? params.qty ?? null;
+    // Quantity: accept several param names, default to 1
+    const quantityRaw = (params.quantity ?? params.number ?? params.amount ?? params.qty ?? null);
     const quantity =
       (typeof quantityRaw === 'number' && isFinite(quantityRaw))
         ? quantityRaw
         : Number(quantityRaw) || 1;
 
-    let food = (params.food_item || '').toString().toLowerCase().trim();
+    // Food: normalize to string
+    let food = ((params.food_item ?? params.item ?? '') + '').toLowerCase().trim();
 
     // Safety net: correct mis-tags using the original user text
     const knownItems = Object.keys(foodDescriptions);
     const directHit = knownItems.find(k => originalText.includes(k));
     if (directHit) food = directHit;
     if (!food) {
-      const single = knownItems.find(k => originalText.includes(k.split(' ').slice(-1)[0]));
+      const single = knownItems.find(k => {
+        const last = k.split(' ').slice(-1)[0]; // e.g., "mochi"
+        return originalText.includes(last);
+      });
       if (single) food = single;
     }
 
@@ -74,34 +85,52 @@ app.post('/webhook', (req, res) => {
       const answer = foodDescriptions[food];
       responseText = answer
         ? `Here's what I know about ${food}: ${answer}`
-        : `I'm sorry, I don't have information about ${food}.`;
-    } else if (intent === 'Order.Food') {
+        : `I'm sorry, I don't have information about ${food || 'that item'}.`;
+    }
+    else if (intent === 'Order.Food') {
       if (!foodDescriptions[food]) {
         responseText = `I couldn't recognize the item. Could you say the sushi item again?`;
       } else {
-        addToCart(sessionId, food, quantity);
-        responseText = `Added ${quantity} x ${food} to your order. Current order: ${cartSummary(sessionId)}. Would you like anything else?`;
+        // simple in-memory cart map (lives for process lifetime)
+        globalThis.__carts = globalThis.__carts || new Map();
+        const carts = globalThis.__carts;
+
+        const cart = carts.get(sessionId) || [];
+        const existing = cart.find(r => r.item === food);
+        if (existing) existing.qty += quantity;
+        else cart.push({ item: food, qty: quantity });
+        carts.set(sessionId, cart);
+
+        const summary = cart.map(r => `${r.qty} x ${r.item}`).join(', ');
+        responseText = `Added ${quantity} x ${food} to your order. Current order: ${summary}. Would you like anything else?`;
       }
-    } else if (intent === 'Order.Confirm') {
-      const summary = cartSummary(sessionId);
-      if (summary === 'Your cart is empty.') {
+    }
+    else if (intent === 'Order.Confirm') {
+      globalThis.__carts = globalThis.__carts || new Map();
+      const carts = globalThis.__carts;
+      const cart = carts.get(sessionId) || [];
+      if (cart.length === 0) {
         responseText = `I don't see anything in your order yet. What would you like to have?`;
       } else {
+        const summary = cart.map(r => `${r.qty} x ${r.item}`).join(', ');
         responseText = `Awesome! 🐼 Your order is confirmed: ${summary}. Enjoy! 🥢`;
-        carts.delete(sessionId); // clear after confirmation
+        carts.delete(sessionId);
       }
-    } else {
+    }
+    else {
       responseText = `Got it. How can I help with your sushi order?`;
     }
 
     return res.json({ fulfillmentMessages: [{ text: { text: [responseText] } }] });
   } catch (e) {
+    // For debugging, include the error message so we can see it in DF
     console.error('Webhook error:', e);
     return res.json({
-      fulfillmentMessages: [{ text: { text: ["Oops, something went wrong. Please try again."] } }]
+      fulfillmentMessages: [{ text: { text: ["Error: " + (e && e.message ? e.message : "unknown")] } }]
     });
   }
 });
+
 
 // Start server (must be last)
 const PORT = process.env.PORT || 3000;
