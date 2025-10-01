@@ -124,6 +124,4 @@ app.post('/webhook', (req, res) => {
   }
 });
 
-    return res.json({ fulfillmentMessages: [{ text: { text: ["Error in desc handler"] } }] });
-  }
-});
+  
