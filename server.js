@@ -18,7 +18,7 @@ const foodDescriptions = {
   "green tea": "Green tea is a traditional Japanese drink. It's vegan and caffeine-rich."
 };
 
-// Helpers (define BEFORE using them)
+// In-memory carts (per session)
 const carts = new Map(); // sessionId -> [{item, qty}, ...]
 
 function getSessionId(req) {
@@ -41,11 +41,10 @@ function cartSummary(sessionId) {
   return cart.map(r => `${r.qty} x ${r.item}`).join(', ');
 }
 
+// ✅ Single webhook handler
 app.post('/webhook', (req, res) => {
   try {
-    const session = (req.body && req.body.session) ? req.body.session : 'default';
-    const sessionId = (session.split('/sessions/')[1]) || session || 'default';
-
+    const sessionId = getSessionId(req);
     const qr = (req.body && req.body.queryResult) ? req.body.queryResult : {};
     const intent = (qr.intent && qr.intent.displayName) ? qr.intent.displayName : '';
     const originalText = (qr.queryText || '').toLowerCase();
@@ -80,36 +79,16 @@ app.post('/webhook', (req, res) => {
       if (!foodDescriptions[food]) {
         responseText = `I couldn't recognize the item. Could you say the sushi item again?`;
       } else {
-        // in-memory cart
-        globalThis._carts = globalThis._carts || new Map();
-        const carts = globalThis._carts;
-
-        const addToCart = (sid, item, qty = 1) => {
-          const cart = carts.get(sid) || [];
-          const existing = cart.find(r => r.item === item);
-          if (existing) existing.qty += qty;
-          else cart.push({ item, qty });
-          carts.set(sid, cart);
-        };
-        const cartSummary = (sid) => {
-          const cart = carts.get(sid) || [];
-          if (cart.length === 0) return 'Your cart is empty.';
-          return cart.map(r => `${r.qty} x ${r.item}`).join(', ');
-        };
-
         addToCart(sessionId, food, quantity);
         responseText = `Added ${quantity} x ${food} to your order. Current order: ${cartSummary(sessionId)}. Would you like anything else?`;
       }
     } else if (intent === 'Order.Confirm') {
-      globalThis._carts = globalThis._carts || new Map();
-      const carts = globalThis._carts;
-      const cart = carts.get(sessionId) || [];
-      if (cart.length === 0) {
+      const summary = cartSummary(sessionId);
+      if (summary === 'Your cart is empty.') {
         responseText = `I don't see anything in your order yet. What would you like to have?`;
       } else {
-        const summary = cart.map(r => `${r.qty} x ${r.item}`).join(', ');
         responseText = `Awesome! 🐼 Your order is confirmed: ${summary}. Enjoy! 🥢`;
-        carts.delete(sessionId);
+        carts.delete(sessionId); // clear after confirmation
       }
     } else {
       responseText = `Got it. How can I help with your sushi order?`;
@@ -124,4 +103,6 @@ app.post('/webhook', (req, res) => {
   }
 });
 
-  
+// Start server (must be last)
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Panada webhook is live on port ${PORT}`));
