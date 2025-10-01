@@ -44,64 +44,19 @@ function cartSummary(sessionId) {
 
 app.post('/webhook', (req, res) => {
   try {
-    // DEBUG: log the incoming payload (comment out later if too noisy)
-    console.log('Incoming DF payload:', JSON.stringify(req.body));
-
-    const sessionId = getSessionId(req);
-    const qr = req.body && req.body.queryResult ? req.body.queryResult : {};
-    const intent = (qr.intent && qr.intent.displayName) ? qr.intent.displayName : '';
-    const originalText = (qr.queryText || '').toLowerCase();
-
-    const knownItems = Object.keys(foodDescriptions);
-
+    // Minimal: prove the route works and Dialogflow can parse our reply
+    const qr = (req.body && req.body.queryResult) ? req.body.queryResult : {};
     const params = qr.parameters || {};
-    let food = ((params.food_item || '') + '').toLowerCase().trim();
-    const quantityRaw = params.quantity;
-    const quantity = (typeof quantityRaw === 'number' && isFinite(quantityRaw))
-      ? quantityRaw
-      : Number(quantityRaw) || 1;
+    const food = (params.food_item || '').toString();
+    const intent = (qr.intent && qr.intent.displayName) ? qr.intent.displayName : 'UNKNOWN';
 
-    // Safety net: correct mis-tags using the original user text
-    const directHit = knownItems.find(k => originalText.includes(k));
-    if (directHit) food = directHit;
-    if (!food) {
-      const single = knownItems.find(k => originalText.includes(k.split(' ').slice(-1)[0]));
-      if (single) food = single;
-    }
+    const msg = food
+      ? `Echo check OK. Intent=${intent}. food_item="${food}".`
+      : `Echo check OK. Intent=${intent}. No food_item parameter.`;
 
-    let responseText = 'Okay.';
-
-    if (intent === 'Ask.About.Food') {
-      const answer = foodDescriptions[food];
-      responseText = answer
-        ? `Here's what I know about ${food}: ${answer}`
-        : `I'm sorry, I don't have information about ${food}.`;
-    } else if (intent === 'Order.Food') {
-      if (!foodDescriptions[food]) {
-        responseText = `I couldn't recognize the item. Could you say the sushi item again?`;
-      } else {
-        addToCart(sessionId, food, quantity);
-        responseText = `Added ${quantity} x ${food} to your order. Current order: ${cartSummary(sessionId)}. Would you like anything else?`;
-      }
-    } else if (intent === 'Order.Confirm') {
-      const summary = cartSummary(sessionId);
-      if (summary === 'Your cart is empty.') {
-        responseText = `I don't see anything in your order yet. What would you like to have?`;
-      } else {
-        responseText = `Awesome! 🐼 Your order is confirmed: ${summary}. Enjoy! 🥢`;
-        carts.delete(sessionId); // clear after confirmation
-      }
-    } else {
-      // Unknown intent reached webhook
-      responseText = `Got it. How can I help with your sushi order?`;
-    }
-
-    return res.json({ fulfillmentMessages: [{ text: { text: [responseText] } }] });
+    return res.json({ fulfillmentMessages: [{ text: { text: [msg] } }] });
   } catch (e) {
-    console.error('Webhook error:', e);
-    return res.json({
-      fulfillmentMessages: [{ text: { text: ["Oops, something went wrong. Please try again."] } }]
-    });
+    console.error('Minimal webhook error:', e);
+    return res.json({ fulfillmentMessages: [{ text: { text: ["Minimal webhook failed"] } }] });
   }
 });
-
