@@ -44,16 +44,22 @@ function cartSummary(sessionId) {
 
 app.post('/webhook', (req, res) => {
   try {
+    // DEBUG: log the incoming payload (comment out later if too noisy)
+    console.log('Incoming DF payload:', JSON.stringify(req.body));
+
     const sessionId = getSessionId(req);
-    const qr = req.body?.queryResult || {};
-    const intent = qr.intent?.displayName || '';
+    const qr = req.body && req.body.queryResult ? req.body.queryResult : {};
+    const intent = (qr.intent && qr.intent.displayName) ? qr.intent.displayName : '';
     const originalText = (qr.queryText || '').toLowerCase();
 
     const knownItems = Object.keys(foodDescriptions);
 
     const params = qr.parameters || {};
-    let food = (params.food_item || '').toLowerCase().trim();
-    const quantity = Number(params.quantity || 1) || 1;
+    let food = ((params.food_item || '') + '').toLowerCase().trim();
+    const quantityRaw = params.quantity;
+    const quantity = (typeof quantityRaw === 'number' && isFinite(quantityRaw))
+      ? quantityRaw
+      : Number(quantityRaw) || 1;
 
     // Safety net: correct mis-tags using the original user text
     const directHit = knownItems.find(k => originalText.includes(k));
@@ -85,15 +91,17 @@ app.post('/webhook', (req, res) => {
         responseText = `Awesome! 🐼 Your order is confirmed: ${summary}. Enjoy! 🥢`;
         carts.delete(sessionId); // clear after confirmation
       }
+    } else {
+      // Unknown intent reached webhook
+      responseText = `Got it. How can I help with your sushi order?`;
     }
 
     return res.json({ fulfillmentMessages: [{ text: { text: [responseText] } }] });
   } catch (e) {
+    console.error('Webhook error:', e);
     return res.json({
       fulfillmentMessages: [{ text: { text: ["Oops, something went wrong. Please try again."] } }]
     });
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Panada webhook is live on port ${PORT}`));
