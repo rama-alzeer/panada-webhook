@@ -5,7 +5,10 @@ app.use(express.json());
 // Simple health check
 app.get('/', (req, res) => res.send('Panada webhook OK'));
 
-// Sushi knowledge base
+// Optional: sanity-check the webhook path in a browser
+app.get('/webhook', (req, res) => res.send('Panada webhook endpoint is up (use POST for Dialogflow)'));
+
+// Sushi knowledge base (define once, top-level)
 const foodDescriptions = {
   "sushi roll": "Sushi rolls include rice, seaweed, and fillings like avocado, cucumber, or fish. Vegetarian options available.",
   "sashimi": "Sashimi is thinly sliced raw fish, served without rice.",
@@ -16,6 +19,7 @@ const foodDescriptions = {
   "edamame": "Edamame are steamed soybeans. They're vegan, gluten-free, and healthy.",
   "green tea": "Green tea is a traditional Japanese drink. It's vegan and caffeine-rich."
 };
+
 const carts = new Map(); // sessionId -> [{item, qty}, ...]
 
 function getSessionId(req) {
@@ -45,17 +49,6 @@ app.post('/webhook', (req, res) => {
     const intent = qr.intent?.displayName || '';
     const originalText = (qr.queryText || '').toLowerCase();
 
-    // reuse your existing foodDescriptions object (keep it defined once)
-    const foodDescriptions = {
-      "sushi roll": "Sushi rolls include rice, seaweed, and fillings like avocado, cucumber, or fish. Vegetarian options available.",
-      "sashimi": "Sashimi is thinly sliced raw fish, served without rice.",
-      "nigiri": "Nigiri is raw fish pressed on rice. It's not cooked.",
-      "miso soup": "Miso soup contains fermented soybean paste, tofu, and seaweed. It's vegan-friendly.",
-      "tempura": "Tempura is deep-fried shrimp or veggies. It's crispy and may be spicy.",
-      "mochi": "Mochi is a rice cake dessert, often filled with ice cream. It may contain gluten and dairy.",
-      "edamame": "Edamame are steamed soybeans. They're vegan, gluten-free, and healthy.",
-      "green tea": "Green tea is a traditional Japanese drink. It's vegan and caffeine-rich."
-    };
     const knownItems = Object.keys(foodDescriptions);
 
     const params = qr.parameters || {};
@@ -101,3 +94,6 @@ app.post('/webhook', (req, res) => {
     });
   }
 });
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Panada webhook is live on port ${PORT}`));
