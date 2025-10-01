@@ -44,19 +44,24 @@ function cartSummary(sessionId) {
 
 app.post('/webhook', (req, res) => {
   try {
-    // Minimal: prove the route works and Dialogflow can parse our reply
     const qr = (req.body && req.body.queryResult) ? req.body.queryResult : {};
     const params = qr.parameters || {};
-    const food = (params.food_item || '').toString();
-    const intent = (qr.intent && qr.intent.displayName) ? qr.intent.displayName : 'UNKNOWN';
+    const food = (params.food_item || '').toString().toLowerCase().trim();
 
-    const msg = food
-      ? `Echo check OK. Intent=${intent}. food_item="${food}".`
-      : `Echo check OK. Intent=${intent}. No food_item parameter.`;
+    if (!food) {
+      return res.json({
+        fulfillmentMessages: [{ text: { text: ["Which item are you asking about?"] } }]
+      });
+    }
 
-    return res.json({ fulfillmentMessages: [{ text: { text: [msg] } }] });
+    const answer = foodDescriptions[food];
+    const text = answer
+      ? `Here's what I know about ${food}: ${answer}`
+      : `I'm sorry, I don't have information about ${food}.`;
+
+    return res.json({ fulfillmentMessages: [{ text: { text: [text] } }] });
   } catch (e) {
-    console.error('Minimal webhook error:', e);
-    return res.json({ fulfillmentMessages: [{ text: { text: ["Minimal webhook failed"] } }] });
+    console.error('Desc webhook error:', e);
+    return res.json({ fulfillmentMessages: [{ text: { text: ["Error in desc handler"] } }] });
   }
 });
