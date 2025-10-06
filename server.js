@@ -56,8 +56,6 @@ function addToCart(sessionId, item, qty = 1) {
   else cart.push({ item, qty, mods: [] });
   carts.set(sessionId, cart);
 }
-console.log('Cart AFTER add:', JSON.stringify(carts.get(sessionId)));
-
 function removeFromCart(sessionId, item, qty = null) {
   const cart = carts.get(sessionId) || [];
   const idx = cart.findIndex(r => r.item === item);
@@ -73,8 +71,6 @@ function removeFromCart(sessionId, item, qty = null) {
     return { removed: qty };
   }
 }
-console.log('Cart AFTER remove:', JSON.stringify(carts.get(sessionId)));
-
 function applyModifier(sessionId, itemNameOrNull, action, ingredient) {
   const cart = carts.get(sessionId) || [];
   if (!cart.length) return { ok: false, reason: 'empty' };
@@ -146,13 +142,10 @@ app.post('/webhook', (req, res) => {
     const originalText = ((qr.queryText || '') + '').toLowerCase();
     const params = qr.parameters || {};
 
+    // Debug log per request
     console.log('Session:', sessionId, '| Intent:', intent, '| Text:', originalText, '| Cart:', JSON.stringify(carts.get(sessionId) || []));
-    const removeRegex = /\b(remove|delete|take\s*(off|out|away)|cancel|no more|minus|drop|take away)\b/;
-    const isRemovePhrase = removeRegex.test(originalText);
-    let responseText = 'Okay.';
 
-
-    // Safety net: detect remove phrasing even if DF misroutes
+    // Detect remove phrasing even if DF misroutes
     const removeRegex = /\b(remove|delete|take\s*(off|out|away)|cancel|no more|minus|drop|take away)\b/;
     const isRemovePhrase = removeRegex.test(originalText);
 
@@ -168,26 +161,22 @@ app.post('/webhook', (req, res) => {
     }
 
     // --- Order.Modify ---
-    else if (intent === 'order.modify') {
-      // Extract params if present
+    else if (intent === 'Order.Modify') {
       let action = (params.modifier_action || '').toString().toLowerCase().trim(); // 'no' | 'extra' | 'less'
       let ingredient = (params.ingredient || '').toString().toLowerCase().trim();
       let item = (params.food_item || '').toString().toLowerCase().trim();
 
-      // Auto-detect action if missing
       if (!action) {
         if (/\b(no|without|hold|skip|remove)\b/.test(originalText)) action = 'no';
         else if (/\b(extra|add more|double)\b/.test(originalText)) action = 'extra';
         else if (/\b(less|light|easy on|not too much)\b/.test(originalText)) action = 'less';
       }
-      // Auto-detect ingredient if missing
       if (!ingredient) {
         const hit = KNOWN_INGREDIENTS
           .filter(i => originalText.includes(i))
           .sort((a, b) => b.length - a.length)[0];
         if (hit) ingredient = hit;
       }
-      // If no item specified, try detect from text; else apply to last-added item
       if (!item) {
         const direct = KNOWN_ITEMS.find(k => originalText.includes(k));
         if (direct) item = direct;
@@ -216,6 +205,7 @@ app.post('/webhook', (req, res) => {
         responseText = `Which item should I remove?`;
       } else {
         const { removed } = removeFromCart(sessionId, food, qty);
+        console.log('Cart AFTER remove:', JSON.stringify(carts.get(sessionId) || []));
         responseText = removed === 0
           ? `I couldn’t find ${food} in your order. Current order: ${cartSummary(sessionId)}.`
           : `Removed ${qty ?? removed} x ${food}. Current order: ${cartSummary(sessionId)}.`;
@@ -230,6 +220,7 @@ app.post('/webhook', (req, res) => {
       } else {
         const qty = parseQuantity(params);
         addToCart(sessionId, food, qty);
+        console.log('Cart AFTER add:', JSON.stringify(carts.get(sessionId) || []));
         const total = orderTotal(sessionId);
         responseText = `Added ${qty} x ${food} to your order. Current order: ${cartSummary(sessionId)}. Current total: ${fmtMoney(total)}. Would you like anything else?`;
       }
@@ -264,7 +255,7 @@ app.post('/webhook', (req, res) => {
       }
     }
 
-    // --- Fallback (unknown webhook intent) ---
+    // --- Fallback ---
     else {
       responseText = `Got it. How can I help with your sushi order?`;
     }
