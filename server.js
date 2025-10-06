@@ -161,7 +161,7 @@ app.post('/webhook', (req, res) => {
     }
 
     // --- Order.Modify ---
-    else if (intent === 'Order.Modify') {
+    else if (intent === 'order.modify') {
       let action = (params.modifier_action || '').toString().toLowerCase().trim(); // 'no' | 'extra' | 'less'
       let ingredient = (params.ingredient || '').toString().toLowerCase().trim();
       let item = (params.food_item || '').toString().toLowerCase().trim();
