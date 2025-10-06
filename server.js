@@ -111,6 +111,31 @@ function cartSummary(sessionId, withLineTotals = true) {
   };
   return cart.map(line).join(', ');
 }
+// --- Guest details memory per session ---
+const details = new Map(); // sessionId -> { name?: string, table?: string|number, pickupTime?: string }
+
+function setName(sessionId, name) {
+  const d = details.get(sessionId) || {};
+  d.name = name;
+  details.set(sessionId, d);
+}
+function setTable(sessionId, table) {
+  const d = details.get(sessionId) || {};
+  d.table = table;
+  details.set(sessionId, d);
+}
+function setPickupTime(sessionId, t) {
+  const d = details.get(sessionId) || {};
+  d.pickupTime = t;
+  details.set(sessionId, d);
+}
+function getDetails(sessionId) {
+  return details.get(sessionId) || {};
+}
+function clearSession(sessionId) {
+  carts.delete(sessionId);
+  details.delete(sessionId);
+}
 
 // -------- Helper: robust param parsing --------
 function parseQuantity(params) {
@@ -242,18 +267,78 @@ app.post('/webhook', (req, res) => {
       carts.delete(sessionId);
       responseText = `All set — I cleared your order. Want to start a new one?`;
     }
+    // --- Order.SetName ---
+else if (intent === 'Order.SetName') {
+  let name = (params.guest_name || params.name || '').toString().trim();
+  // fallback: try to pull first word after "i'm" / "my name is"
+  if (!name) {
+    const m = originalText.match(/\b(i'?m|my name is)\s+([a-z]+)\b/i);
+    if (m) name = m[2];
+  }
+  if (!name) {
+    responseText = `What name should I put on the order?`;
+  } else {
+    setName(sessionId, name.charAt(0).toUpperCase() + name.slice(1));
+    const d = getDetails(sessionId);
+    responseText = `Thanks, ${d.name}! ${cartSummary(sessionId) === 'Your cart is empty.' ? 'Want to add something?' : 'Anything else before we confirm?'}`
+  }
+}
+
+// --- Order.SetTable ---
+else if (intent === 'Order.SetTable') {
+  let table = (params.table !== undefined ? params.table : params.number);
+  if (table === undefined || table === null || table === '') {
+    // try to extract from text (e.g., "table 5")
+    const m = originalText.match(/\btable\s+(\d+)\b/);
+    if (m) table = m[1];
+  }
+  if (table === undefined || table === null || table === '') {
+    responseText = `Which table number are you at?`;
+  } else {
+    setTable(sessionId, String(table));
+    const d = getDetails(sessionId);
+    responseText = `Got it — table ${d.table}. ${cartSummary(sessionId) === 'Your cart is empty.' ? 'Ready to order?' : 'Anything else before we confirm?'}`
+  }
+}
+
+// --- Order.SetPickupTime ---
+else if (intent === 'Order.SetPickupTime') {
+  // accept various sys.* param names
+  const t = (params.pickup_time || params.time || params['date-time'] || '').toString().trim();
+  let when = t;
+  if (!when) {
+    // crude fallback: "in 20 minutes", "at 6 pm"
+    const m = originalText.match(/\b(in\s+\d+\s*(min|mins|minutes|hour|hours))|(at\s+\d+(:\d+)?\s*(am|pm)?)\b/);
+    if (m) when = m[0];
+  }
+  if (!when) {
+    responseText = `When should we have it ready?`;
+  } else {
+    setPickupTime(sessionId, when);
+    const d = getDetails(sessionId);
+    responseText = `Pickup time set for ${d.pickupTime}. ${cartSummary(sessionId) === 'Your cart is empty.' ? 'What would you like to order?' : 'Anything else before we confirm?'}`
+  }
+}
+
 
     // --- Order.Confirm ---
-    else if (intent === 'Order.Confirm') {
-      const summary = cartSummary(sessionId);
-      if (summary === 'Your cart is empty.') {
-        responseText = `I don't see anything in your order yet. What would you like to have?`;
-      } else {
-        const total = orderTotal(sessionId);
-        responseText = `Awesome! 🐼 Your order is confirmed: ${summary}. Total: ${fmtMoney(total)}. Enjoy! 🥢`;
-        carts.delete(sessionId);
-      }
+else if (intent === 'Order.Confirm') {
+  const summary = cartSummary(sessionId);
+  if (summary === 'Your cart is empty.') {
+    responseText = `I don't see anything in your order yet. What would you like to have?`;
+  } else {
+    const d = getDetails(sessionId);
+    // Require either table (dine-in) OR name (pickup). Adjust to your flow.
+    if (!d.table && !d.name) {
+      responseText = `Before I confirm: are you dining in or picking up? You can say “table 5” or “I’m Alex for pickup.”`;
+    } else {
+      const total = orderTotal(sessionId);
+      const header = d.table ? `Table ${d.table}` : `Pickup for ${d.name}`;
+      responseText = `Awesome! 🐼 ${header} — ${summary}. Total: ${fmtMoney(total)}. Enjoy! 🥢`;
+      clearSession(sessionId);
     }
+  }
+}
 
     // --- Fallback ---
     else {
