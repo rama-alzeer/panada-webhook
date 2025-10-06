@@ -56,6 +56,8 @@ function addToCart(sessionId, item, qty = 1) {
   else cart.push({ item, qty, mods: [] });
   carts.set(sessionId, cart);
 }
+console.log('Cart AFTER add:', JSON.stringify(carts.get(sessionId)));
+
 function removeFromCart(sessionId, item, qty = null) {
   const cart = carts.get(sessionId) || [];
   const idx = cart.findIndex(r => r.item === item);
@@ -71,6 +73,8 @@ function removeFromCart(sessionId, item, qty = null) {
     return { removed: qty };
   }
 }
+console.log('Cart AFTER remove:', JSON.stringify(carts.get(sessionId)));
+
 function applyModifier(sessionId, itemNameOrNull, action, ingredient) {
   const cart = carts.get(sessionId) || [];
   if (!cart.length) return { ok: false, reason: 'empty' };
@@ -141,6 +145,12 @@ app.post('/webhook', (req, res) => {
     const intent = (qr.intent && qr.intent.displayName) ? qr.intent.displayName : '';
     const originalText = ((qr.queryText || '') + '').toLowerCase();
     const params = qr.parameters || {};
+
+    console.log('Session:', sessionId, '| Intent:', intent, '| Text:', originalText, '| Cart:', JSON.stringify(carts.get(sessionId) || []));
+    const removeRegex = /\b(remove|delete|take\s*(off|out|away)|cancel|no more|minus|drop|take away)\b/;
+    const isRemovePhrase = removeRegex.test(originalText);
+    let responseText = 'Okay.';
+
 
     // Safety net: detect remove phrasing even if DF misroutes
     const removeRegex = /\b(remove|delete|take\s*(off|out|away)|cancel|no more|minus|drop|take away)\b/;
