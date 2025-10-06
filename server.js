@@ -28,6 +28,18 @@ const KNOWN_INGREDIENTS = [
   'sugar', 'ice'
 ];
 
+// -------- Prices --------
+const PRICES = {
+  "sushi roll": 4.50,
+  "sashimi": 6.00,
+  "nigiri": 2.50,
+  "miso soup": 3.00,
+  "tempura": 7.00,
+  "mochi": 3.50,
+  "edamame": 3.00,
+  "green tea": 2.00
+};
+const CURRENCY = "€";
 
 // -------- In-memory carts (per Dialogflow session) --------
 const carts = new Map(); // sessionId -> [{ item, qty, mods: [{action, ingredient}] }]
@@ -74,14 +86,28 @@ function applyModifier(sessionId, itemNameOrNull, action, ingredient) {
   carts.set(sessionId, cart);
   return { ok: true, item: row.item };
 }
-function cartSummary(sessionId) {
+function linePrice(itemName, qty) {
+  const p = PRICES[itemName] ?? 0;
+  return +(p * qty).toFixed(2);
+}
+function orderTotal(sessionId) {
+  const cart = carts.get(sessionId) || [];
+  const sum = cart.reduce((acc, r) => acc + linePrice(r.item, r.qty), 0);
+  return +sum.toFixed(2);
+}
+function fmtMoney(amount) {
+  return `${CURRENCY}${amount.toFixed(2)}`;
+}
+function cartSummary(sessionId, withLineTotals = true) {
   const cart = carts.get(sessionId) || [];
   if (!cart.length) return 'Your cart is empty.';
   const line = r => {
     const modsTxt = (r.mods && r.mods.length)
       ? ` (${r.mods.map(m => `${m.action} ${m.ingredient}`).join(', ')})`
       : '';
-    return `${r.qty} x ${r.item}${modsTxt}`;
+    const base = `${r.qty} x ${r.item}${modsTxt}`;
+    if (!withLineTotals) return base;
+    return `${base} — ${fmtMoney(linePrice(r.item, r.qty))}`;
   };
   return cart.map(line).join(', ');
 }
@@ -133,54 +159,52 @@ app.post('/webhook', (req, res) => {
 
     // --- Order.Modify ---
     else if (intent === 'order.modify') {
-  // Extract params if present
-  let action = (params.modifier_action || '').toString().toLowerCase().trim(); // 'no' | 'extra' | 'less'
-  let ingredient = (params.ingredient || '').toString().toLowerCase().trim();
-  let item = (params.food_item || '').toString().toLowerCase().trim();
+      // Extract params if present
+      let action = (params.modifier_action || '').toString().toLowerCase().trim(); // 'no' | 'extra' | 'less'
+      let ingredient = (params.ingredient || '').toString().toLowerCase().trim();
+      let item = (params.food_item || '').toString().toLowerCase().trim();
 
-  // --- Auto-detect action if missing ---
-  if (!action) {
-    if (/\b(no|without|hold|skip|remove)\b/.test(originalText)) action = 'no';
-    else if (/\b(extra|add more|double)\b/.test(originalText)) action = 'extra';
-    else if (/\b(less|light|easy on|not too much)\b/.test(originalText)) action = 'less';
-  }
+      // Auto-detect action if missing
+      if (!action) {
+        if (/\b(no|without|hold|skip|remove)\b/.test(originalText)) action = 'no';
+        else if (/\b(extra|add more|double)\b/.test(originalText)) action = 'extra';
+        else if (/\b(less|light|easy on|not too much)\b/.test(originalText)) action = 'less';
+      }
+      // Auto-detect ingredient if missing
+      if (!ingredient) {
+        const hit = KNOWN_INGREDIENTS
+          .filter(i => originalText.includes(i))
+          .sort((a, b) => b.length - a.length)[0];
+        if (hit) ingredient = hit;
+      }
+      // If no item specified, try detect from text; else apply to last-added item
+      if (!item) {
+        const direct = KNOWN_ITEMS.find(k => originalText.includes(k));
+        if (direct) item = direct;
+      }
 
-  // --- Auto-detect ingredient if missing ---
-  if (!ingredient) {
-    const hit = KNOWN_INGREDIENTS
-      .filter(i => originalText.includes(i))
-      .sort((a, b) => b.length - a.length)[0]; // choose longest match (e.g., "soy sauce" over "soy")
-    if (hit) ingredient = hit;
-  }
-
-  // If no item specified, try detect from text; else apply to last-added item
-  if (!item) {
-    const direct = KNOWN_ITEMS.find(k => originalText.includes(k));
-    if (direct) item = direct;
-  }
-
-  if (!action || !ingredient) {
-    responseText = `Got it. Please specify the change, like "no wasabi" or "extra ginger".`;
-  } else {
-    const out = applyModifier(sessionId, item || null, action, ingredient);
-    if (!out.ok && out.reason === 'empty') {
-      responseText = `Your cart is empty. Add something first, then say a modifier like "no wasabi".`;
-    } else if (!out.ok && out.reason === 'not_found') {
-      responseText = `I couldn't find ${item} in your order. Current order: ${cartSummary(sessionId)}.`;
-    } else {
-      responseText = `Done — ${action} ${ingredient}${out.item ? ` on ${out.item}` : ''}. Current order: ${cartSummary(sessionId)}.`;
+      if (!action || !ingredient) {
+        responseText = `Got it. Please specify the change, like "no wasabi" or "extra ginger".`;
+      } else {
+        const out = applyModifier(sessionId, item || null, action, ingredient);
+        if (!out.ok && out.reason === 'empty') {
+          responseText = `Your cart is empty. Add something first, then say a modifier like "no wasabi".`;
+        } else if (!out.ok && out.reason === 'not_found') {
+          responseText = `I couldn't find ${item} in your order. Current order: ${cartSummary(sessionId)}.`;
+        } else {
+          responseText = `Done — ${action} ${ingredient}${out.item ? ` on ${out.item}` : ''}. Current order: ${cartSummary(sessionId)}.`;
+        }
+      }
     }
-  }
-}
-
 
     // --- Order.Remove (or misrouted remove phrase) ---
     else if (intent === 'Order.Remove' || isRemovePhrase) {
       const food = parseFood(params, originalText);
       const qtyRaw = params.quantity ?? params.number ?? params.amount ?? params.qty ?? null;
       const qty = (typeof qtyRaw === 'number' && isFinite(qtyRaw)) ? qtyRaw : (Number(qtyRaw) || null);
-      if (!food) responseText = `Which item should I remove?`;
-      else {
+      if (!food) {
+        responseText = `Which item should I remove?`;
+      } else {
         const { removed } = removeFromCart(sessionId, food, qty);
         responseText = removed === 0
           ? `I couldn’t find ${food} in your order. Current order: ${cartSummary(sessionId)}.`
@@ -196,16 +220,20 @@ app.post('/webhook', (req, res) => {
       } else {
         const qty = parseQuantity(params);
         addToCart(sessionId, food, qty);
-        responseText = `Added ${qty} x ${food} to your order. Current order: ${cartSummary(sessionId)}. Would you like anything else?`;
+        const total = orderTotal(sessionId);
+        responseText = `Added ${qty} x ${food} to your order. Current order: ${cartSummary(sessionId)}. Current total: ${fmtMoney(total)}. Would you like anything else?`;
       }
     }
 
     // --- Order.Summary ---
     else if (intent === 'Order.Summary') {
       const summary = cartSummary(sessionId);
-      responseText = summary === 'Your cart is empty.'
-        ? `Your cart is empty. Want to add something?`
-        : `Here’s your current order: ${summary}.`;
+      if (summary === 'Your cart is empty.') {
+        responseText = `Your cart is empty. Want to add something?`;
+      } else {
+        const total = orderTotal(sessionId);
+        responseText = `Here’s your current order: ${summary}. Total: ${fmtMoney(total)}.`;
+      }
     }
 
     // --- Order.Clear ---
@@ -220,7 +248,8 @@ app.post('/webhook', (req, res) => {
       if (summary === 'Your cart is empty.') {
         responseText = `I don't see anything in your order yet. What would you like to have?`;
       } else {
-        responseText = `Awesome! 🐼 Your order is confirmed: ${summary}. Enjoy! 🥢`;
+        const total = orderTotal(sessionId);
+        responseText = `Awesome! 🐼 Your order is confirmed: ${summary}. Total: ${fmtMoney(total)}. Enjoy! 🥢`;
         carts.delete(sessionId);
       }
     }
