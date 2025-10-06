@@ -19,6 +19,16 @@ const foodDescriptions = {
 };
 const KNOWN_ITEMS = Object.keys(foodDescriptions);
 
+const KNOWN_INGREDIENTS = [
+  'wasabi',
+  'ginger', 'pickled ginger', 'gari',
+  'soy sauce', 'soy', 'soya sauce',
+  'mayo', 'mayonnaise', 'spicy mayo',
+  'spice', 'chili', 'chilli', 'hot',
+  'sugar', 'ice'
+];
+
+
 // -------- In-memory carts (per Dialogflow session) --------
 const carts = new Map(); // sessionId -> [{ item, qty, mods: [{action, ingredient}] }]
 
@@ -123,26 +133,46 @@ app.post('/webhook', (req, res) => {
 
     // --- Order.Modify ---
     else if (intent === 'Order.Modify') {
-      const action = (params.modifier_action || '').toString().toLowerCase().trim(); // 'no' | 'extra' | 'less'
-      const ingredient = (params.ingredient || '').toString().toLowerCase().trim();
-      let item = (params.food_item || '').toString().toLowerCase().trim();
-      if (!item) {
-        const direct = KNOWN_ITEMS.find(k => originalText.includes(k));
-        if (direct) item = direct;
-      }
-      if (!action || !ingredient) {
-        responseText = `Got it. Please specify the change, like "no wasabi" or "extra ginger".`;
-      } else {
-        const out = applyModifier(sessionId, item || null, action, ingredient);
-        if (!out.ok && out.reason === 'empty') {
-          responseText = `Your cart is empty. Add something first, then say a modifier like "no wasabi".`;
-        } else if (!out.ok && out.reason === 'not_found') {
-          responseText = `I couldn't find ${item} in your order. Current order: ${cartSummary(sessionId)}.`;
-        } else {
-          responseText = `Done — ${action} ${ingredient}${out.item ? ` on ${out.item}` : ''}. Current order: ${cartSummary(sessionId)}.`;
-        }
-      }
+  // Extract params if present
+  let action = (params.modifier_action || '').toString().toLowerCase().trim(); // 'no' | 'extra' | 'less'
+  let ingredient = (params.ingredient || '').toString().toLowerCase().trim();
+  let item = (params.food_item || '').toString().toLowerCase().trim();
+
+  // --- Auto-detect action if missing ---
+  if (!action) {
+    if (/\b(no|without|hold|skip|remove)\b/.test(originalText)) action = 'no';
+    else if (/\b(extra|add more|double)\b/.test(originalText)) action = 'extra';
+    else if (/\b(less|light|easy on|not too much)\b/.test(originalText)) action = 'less';
+  }
+
+  // --- Auto-detect ingredient if missing ---
+  if (!ingredient) {
+    const hit = KNOWN_INGREDIENTS
+      .filter(i => originalText.includes(i))
+      .sort((a, b) => b.length - a.length)[0]; // choose longest match (e.g., "soy sauce" over "soy")
+    if (hit) ingredient = hit;
+  }
+
+  // If no item specified, try detect from text; else apply to last-added item
+  if (!item) {
+    const direct = KNOWN_ITEMS.find(k => originalText.includes(k));
+    if (direct) item = direct;
+  }
+
+  if (!action || !ingredient) {
+    responseText = `Got it. Please specify the change, like "no wasabi" or "extra ginger".`;
+  } else {
+    const out = applyModifier(sessionId, item || null, action, ingredient);
+    if (!out.ok && out.reason === 'empty') {
+      responseText = `Your cart is empty. Add something first, then say a modifier like "no wasabi".`;
+    } else if (!out.ok && out.reason === 'not_found') {
+      responseText = `I couldn't find ${item} in your order. Current order: ${cartSummary(sessionId)}.`;
+    } else {
+      responseText = `Done — ${action} ${ingredient}${out.item ? ` on ${out.item}` : ''}. Current order: ${cartSummary(sessionId)}.`;
     }
+  }
+}
+
 
     // --- Order.Remove (or misrouted remove phrase) ---
     else if (intent === 'Order.Remove' || isRemovePhrase) {
