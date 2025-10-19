@@ -160,6 +160,26 @@ function parseFood(params, originalText) {
   }
   return food;
 }
+
+// Simple kitchen simulation
+let kitchenOrders = []; // store orders temporarily
+
+function sendToKitchen(order) {
+  console.log("🍳 Sending to kitchen:", order);
+
+  // Add to kitchen queue
+  kitchenOrders.push({ order, status: "preparing" });
+
+  // Simulate kitchen preparation
+  setTimeout(() => {
+    // Mark as ready
+    kitchenOrders = kitchenOrders.map(o => 
+      o.order === order ? { ...o, status: "ready" } : o
+    );
+    console.log("✅ Order ready:", order);
+  }, 5000); // 5 seconds for demo
+}
+
 //--- Webhook --------
 app.post('/webhook', (req, res) => {
   try {
@@ -330,44 +350,33 @@ else if (intent === 'Order.SetPickupTime') {
 
     // --- Order.Confirm ---
 else if (intent === 'Order.Confirm') {
-  const summary = cartSummary(sessionId);
-  if (summary === 'Your cart is empty.') {
-    responseText = `I don't see anything in your order yet. What would you like to have?`;
-  } else {
-    const d = getDetails(sessionId);
-    // Require either table (dine-in) OR name (pickup). Adjust to your flow.
-    if (!d.table && !d.name) {
-      responseText = `Before I confirm: are you dining in or picking up? You can say “table 5” or “I’m Alex for pickup.”`;
-    } else {
-      const total = orderTotal(sessionId);
-      const header = d.table ? `Table ${d.table}` : `Pickup for ${d.name}`;
-      responseText = `Awesome! 🐼 ${header} — ${summary}. Total: ${fmtMoney(total)}. Enjoy! 🥢`;
-      sendToKitchen(currentOrder)
-      clearSession(sessionId);
+  const summary = cartSummary(sessionId);
+  if (summary === 'Your cart is empty.') {
+    responseText = `I don't see anything in your order yet. What would you like to have?`;
+  } else {
+    const d = getDetails(sessionId);
+    // Require either table (dine-in) OR name (pickup). Adjust to your flow.
+    if (!d.table && !d.name) {
+      responseText = `Before I confirm: are you dining in or picking up? You can say “table 5” or “I’m Alex for pickup.”`;
+    } else {
+      const total = orderTotal(sessionId);
+      const header = d.table ? `Table ${d.table}` : `Pickup for ${d.name}`;
+      responseText = `Awesome! 🐼 ${header} — ${summary}. Total: ${fmtMoney(total)}. Enjoy! 🥢`;
 
-    }
-  }
+      // 🧩 STEP 2: Call the sendToKitchen function here
+      const currentOrder = carts.get(sessionId); // Get the current items
+      const orderDetails = {
+        ...d, // name, table, pickupTime
+        items: currentOrder,
+        total: total
+      };
+      sendToKitchen(orderDetails); // Pass the order details to the kitchen simulation
+
+      clearSession(sessionId); // Clear the cart and details after sending to kitchen
+    }
+  }
 }
 
-    
-  // Simple kitchen simulation
-let kitchenOrders = []; // store orders temporarily
-
-function sendToKitchen(order) {
-  console.log("🍳 Sending to kitchen:", order);
-
-  // Add to kitchen queue
-  kitchenOrders.push({ order, status: "preparing" });
-
-  // Simulate kitchen preparation
-  setTimeout(() => {
-    // Mark as ready
-    kitchenOrders = kitchenOrders.map(o => 
-      o.order === order ? { ...o, status: "ready" } : o
-    );
-    console.log("✅ Order ready:", order);
-  }, 5000); // 5 seconds for demo
-}
 
 
     // --- Fallback ---
