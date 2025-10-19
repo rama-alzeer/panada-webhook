@@ -145,7 +145,11 @@ function parseQuantity(params) {
   return 1;
 }
 function parseFood(params, originalText) {
-  let food = ((params.food_item ?? params.item ?? '') + '').toLowerCase().trim();
+  let rawFood = params.food_item ?? params.item ?? '';
+  // Handle array case
+  if (Array.isArray(rawFood)) rawFood = rawFood[0];
+  let food = String(rawFood).toLowerCase().trim();
+
   if (!food) {
     const direct = KNOWN_ITEMS.find(k => originalText.includes(k));
     if (direct) food = direct;
@@ -156,8 +160,7 @@ function parseFood(params, originalText) {
   }
   return food;
 }
-
-// -------- Webhook --------
+--- Webhook --------
 app.post('/webhook', (req, res) => {
   try {
     const sessionId = getSessionId(req);
