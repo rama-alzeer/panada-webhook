@@ -342,10 +342,33 @@ else if (intent === 'Order.Confirm') {
       const total = orderTotal(sessionId);
       const header = d.table ? `Table ${d.table}` : `Pickup for ${d.name}`;
       responseText = `Awesome! 🐼 ${header} — ${summary}. Total: ${fmtMoney(total)}. Enjoy! 🥢`;
+      sendToKitchen(currentOrder)
       clearSession(sessionId);
+
     }
   }
 }
+
+    
+  // Simple kitchen simulation
+let kitchenOrders = []; // store orders temporarily
+
+function sendToKitchen(order) {
+  console.log("🍳 Sending to kitchen:", order);
+
+  // Add to kitchen queue
+  kitchenOrders.push({ order, status: "preparing" });
+
+  // Simulate kitchen preparation
+  setTimeout(() => {
+    // Mark as ready
+    kitchenOrders = kitchenOrders.map(o => 
+      o.order === order ? { ...o, status: "ready" } : o
+    );
+    console.log("✅ Order ready:", order);
+  }, 5000); // 5 seconds for demo
+}
+
 
     // --- Fallback ---
     else {
