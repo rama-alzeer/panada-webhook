@@ -167,6 +167,10 @@ app.post('/webhook', (req, res) => {
     const originalText = ((qr.queryText || '') + '').toLowerCase();
     const params = qr.parameters || {};
 
+    console.log('PARAMS:', JSON.stringify(params));
+
+    
+
     // Debug log per request
     console.log('Session:', sessionId, '| Intent:', intent, '| Text:', originalText, '| Cart:', JSON.stringify(carts.get(sessionId) || []));
 
