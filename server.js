@@ -350,33 +350,23 @@ else if (intent === 'Order.SetPickupTime') {
 
     // --- Order.Confirm ---
 else if (intent === 'Order.Confirm') {
-  const summary = cartSummary(sessionId);
-  if (summary === 'Your cart is empty.') {
-    responseText = `I don't see anything in your order yet. What would you like to have?`;
-  } else {
-    const d = getDetails(sessionId);
-    // Require either table (dine-in) OR name (pickup). Adjust to your flow.
-    if (!d.table && !d.name) {
-      responseText = `Before I confirm: are you dining in or picking up? You can say “table 5” or “I’m Alex for pickup.”`;
-    } else {
-      const total = orderTotal(sessionId);
-      const header = d.table ? `Table ${d.table}` : `Pickup for ${d.name}`;
-      responseText = `Awesome! 🐼 ${header} — ${summary}. Total: ${fmtMoney(total)}. Enjoy! 🥢`;
+  const summary = cartSummary(sessionId);
+  if (summary === 'Your cart is empty.') {
+    responseText = `You haven’t ordered anything yet. What would you like to have?`;
+  } else {
+    const total = orderTotal(sessionId);
+    const orderNumber = Math.floor(Math.random() * 900 + 100); // random 3-digit number
+    responseText = `Got it! 🐼 Your order #${orderNumber} is confirmed — ${summary}. Total: ${fmtMoney(total)}. The kitchen is preparing it now! 🍣`;
 
-      // 🧩 STEP 2: Call the sendToKitchen function here
-      const currentOrder = carts.get(sessionId); // Get the current items
-      const orderDetails = {
-        ...d, // name, table, pickupTime
-        items: currentOrder,
-        total: total
-      };
-      sendToKitchen(orderDetails); // Pass the order details to the kitchen simulation
-
-      clearSession(sessionId); // Clear the cart and details after sending to kitchen
-    }
-  }
+    const orderDetails = {
+      orderNumber,
+      items: carts.get(sessionId),
+      total: total
+    };
+    sendToKitchen(orderDetails);
+    clearSession(sessionId);
+  }
 }
-
 
 
     // --- Fallback ---
