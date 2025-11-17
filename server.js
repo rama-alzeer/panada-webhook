@@ -180,6 +180,8 @@ function sendToKitchen(order) {
   }, 5000); // 5 seconds for demo
 }
 
+app.use(express.static(__dirname));
+
 //--- Webhook --------
 app.post('/webhook', (req, res) => {
   try {
