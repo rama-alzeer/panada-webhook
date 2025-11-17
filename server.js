@@ -1,6 +1,8 @@
 const express = require('express');
 const app = express();
 app.use(express.json());
+app.use(express.static(__dirname));
+
 
 // Health checks
 app.get('/', (_req, res) => res.send('Panada webhook OK'));
@@ -180,7 +182,6 @@ function sendToKitchen(order) {
   }, 5000); // 5 seconds for demo
 }
 
-app.use(express.static(__dirname));
 
 //--- Webhook --------
 app.post('/webhook', (req, res) => {
