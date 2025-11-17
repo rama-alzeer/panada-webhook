@@ -92,14 +92,25 @@
       addMessage(text, "user");
       input.value = "";
 
-      const response = await fetch("https://panada-webhook.onrender.com/webhook", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          queryResult: { queryText: text, parameters: {}, intent: { displayName: "User.Message" } },
-          session: "web-user-session"
-        })
-      });
+     const response = await fetch(
+  "https://dialogflow.googleapis.com/v2/projects/YOUR_PROJECT_ID/agent/sessions/web-user-session:detectIntent",
+  {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer YOUR_ACCESS_TOKEN"
+    },
+    body: JSON.stringify({
+      queryInput: {
+        text: {
+          text: text,
+          languageCode: "en"
+        }
+      }
+    })
+  }
+);
+
 
       const data = await response.json();
       const reply = data.fulfillmentMessages?.[0]?.text?.text?.[0] || "Oops, no reply from bot.";
