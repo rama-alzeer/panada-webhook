@@ -184,16 +184,34 @@ function sendToKitchen(order) {
 
 
 //--- Webhook --------
-app.post('/webhook', (req, res) => {
-  try {
-    const sessionId = getSessionId(req);
-    const body = req.body || {};
-    const qr = body.queryResult || {};
-    const intent = (qr.intent && qr.intent.displayName) ? qr.intent.displayName : '';
-    const originalText = ((qr.queryText || '') + '').toLowerCase();
-    const params = qr.parameters || {};
+app.post("/webhook", (req, res) => {
+    const userText = req.body.queryResult.queryText;
+    const intent = req.body.queryResult.intent.displayName;
 
-    console.log('PARAMS:', JSON.stringify(params));
+    let reply = "I didn't understand. Can you repeat?";
+
+    if (intent === "Default Welcome Intent") {
+        reply = "Hello! Welcome to Panda Sushi 🍣 How can I help you today?";
+    }
+    else if (userText.toLowerCase().includes("menu")) {
+        reply = "Here is our menu: 🍣 Sushi, 🍜 Ramen, 🥟 Dumplings, 🍵 Matcha tea.";
+    }
+    else if (userText.toLowerCase().includes("order")) {
+        reply = "Sure! What would you like to order?";
+    }
+    else if (userText.toLowerCase().includes("hi") || userText.toLowerCase().includes("hello")) {
+        reply = "Hi there 👋 How can I help you today?";
+    }
+
+    res.json({
+        fulfillmentMessages: [
+            {
+                text: { text: [reply] }
+            }
+        ]
+    });
+});
+
 
     
 
