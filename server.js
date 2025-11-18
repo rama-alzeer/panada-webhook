@@ -180,33 +180,42 @@ async function getAccessToken() {
  ******************************/
 app.post("/dialogflow-query", async (req, res) => {
   try {
-    const token = await getAccessToken();
+    // Save service account JSON to a temp path (safe on Render)
+    const jsonPath = path.join(os.tmpdir(), 'service-account.json');
+    fs.writeFileSync(jsonPath, process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+
+    const auth = new GoogleAuth({
+      keyFile: jsonPath,
+      scopes: 'https://www.googleapis.com/auth/cloud-platform',
+    });
+
+    const client = await auth.getClient();
+    const { token } = await client.getAccessToken();
 
     const response = await fetch(
-  'https://dialogflow.googleapis.com/v2/projects/panada-webhook/agent/sessions/web-user-session:detectIntent',
-  {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      queryInput: {
-        text: {
-          text: req.body.text || 'Hello',
-          languageCode: 'en',
+      'https://dialogflow.googleapis.com/v2/projects/panda-hinl/agent/sessions/web-user-session:detectIntent',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
         },
-      },
-    }),
-  }
-);
-
+        body: JSON.stringify({
+          queryInput: {
+            text: {
+              text: req.body.text || 'Hello',
+              languageCode: 'en',
+            },
+          },
+        }),
+      }
+    );
 
     const data = await response.json();
     res.json(data);
 
   } catch (err) {
-    console.error(err);
+    console.error("Dialogflow error:", err);
     res.status(500).json({ error: 'Dialogflow request failed' });
   }
 });
