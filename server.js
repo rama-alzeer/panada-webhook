@@ -185,33 +185,42 @@ function sendToKitchen(order) {
 
 //--- Webhook --------
 app.post("/webhook", (req, res) => {
+  try {
     const userText = req.body.queryResult.queryText;
     const intent = req.body.queryResult.intent.displayName;
 
     let reply = "I didn't understand. Can you repeat?";
 
     if (intent === "Default Welcome Intent") {
-        reply = "Hello! Welcome to Panda Sushi 🍣 How can I help you today?";
+      reply = "Hello! Welcome to Panda Sushi 🍣 How can I help you today?";
     }
     else if (userText.toLowerCase().includes("menu")) {
-        reply = "Here is our menu: 🍣 Sushi, 🍜 Ramen, 🥟 Dumplings, 🍵 Matcha tea.";
+      reply = "Here is our menu: 🍣 Sushi, 🍜 Ramen, 🥟 Dumplings, 🍵 Matcha tea.";
     }
     else if (userText.toLowerCase().includes("order")) {
-        reply = "Sure! What would you like to order?";
+      reply = "Sure! What would you like to order?";
     }
     else if (userText.toLowerCase().includes("hi") || userText.toLowerCase().includes("hello")) {
-        reply = "Hi there 👋 How can I help you today?";
+      reply = "Hi there 👋 How can I help you today?";
+    }
+    else {
+      reply = "Got it. How can I help with your sushi order?";
     }
 
-    res.json({
-        fulfillmentMessages: [
-            {
-                text: { text: [reply] }
-            }
-        ]
+    return res.json({
+      fulfillmentMessages: [
+        { text: { text: [reply] } }
+      ]
     });
+  } catch (e) {
+    console.error("Webhook error:", e);
+    return res.json({
+      fulfillmentMessages: [
+        { text: { text: ["(Webhook) Unexpected error. Check server logs."] } }
+      ]
+    });
+  }
 });
-
 
 
     
