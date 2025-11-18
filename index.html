@@ -111,6 +111,11 @@
   }
 );
 
+const data = await response.json();
+const reply = data.queryResult?.fulfillmentText || "No reply from Dialogflow.";
+addMessage(reply, "bot");
+
+
 
       const data = await response.json();
       const reply = data.fulfillmentMessages?.[0]?.text?.text?.[0] || "Oops, no reply from bot.";
