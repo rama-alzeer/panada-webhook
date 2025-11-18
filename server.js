@@ -397,7 +397,7 @@ else if (intent === 'Order.Confirm') {
     }
 
     return res.json({ fulfillmentMessages: [{ text: { text: [responseText] } }] });
-  } catch (e) {
+    catch (e) {
     console.error('Webhook error:', e);
     return res.json({
       fulfillmentMessages: [{ text: { text: ["(Webhook) Unexpected error. Check server logs."] } }]
