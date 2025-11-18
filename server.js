@@ -1,7 +1,7 @@
-const express = require('express');
-const fetch = require('node-fetch');
-const { GoogleAuth } = require('google-auth-library');
-const fs = require('fs');
+import express from 'express';
+import fetch from 'node-fetch';
+import { GoogleAuth } from 'google-auth-library';
+import fs from 'fs';
 
 const app = express();
 app.use(express.json());
