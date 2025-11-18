@@ -184,32 +184,33 @@ function sendToKitchen(order) {
 
 
 //--- Webhook --------
+// --- Webhook --------
 app.post("/webhook", (req, res) => {
   try {
     const userText = req.body.queryResult.queryText;
     const intent = req.body.queryResult.intent.displayName;
 
-    let reply = "I didn't understand. Can you repeat?";
+    let responseText = "I didn't understand. Can you repeat?";
 
     if (intent === "Default Welcome Intent") {
-      reply = "Hello! Welcome to Panda Sushi 🍣 How can I help you today?";
+      responseText = "Hello! Welcome to Panda Sushi 🍣 How can I help you today?";
     }
     else if (userText.toLowerCase().includes("menu")) {
-      reply = "Here is our menu: 🍣 Sushi, 🍜 Ramen, 🥟 Dumplings, 🍵 Matcha tea.";
+      responseText = "Here is our menu: 🍣 Sushi, 🍜 Ramen, 🥟 Dumplings, 🍵 Matcha tea.";
     }
     else if (userText.toLowerCase().includes("order")) {
-      reply = "Sure! What would you like to order?";
+      responseText = "Sure! What would you like to order?";
     }
     else if (userText.toLowerCase().includes("hi") || userText.toLowerCase().includes("hello")) {
-      reply = "Hi there 👋 How can I help you today?";
+      responseText = "Hi there 👋 How can I help you today?";
     }
     else {
-      reply = "Got it. How can I help with your sushi order?";
+      responseText = "Got it. How can I help with your sushi order?";
     }
 
     return res.json({
       fulfillmentMessages: [
-        { text: { text: [reply] } }
+        { text: { text: [responseText] } }
       ]
     });
   } catch (e) {
@@ -221,6 +222,7 @@ app.post("/webhook", (req, res) => {
     });
   }
 });
+
 
 
     
@@ -400,19 +402,7 @@ else if (intent === 'Order.Confirm') {
 }
 
 
-    // --- Fallback ---
-    else {
-      responseText = `Got it. How can I help with your sushi order?`;
-    }
-
-    return res.json({ fulfillmentMessages: [{ text: { text: [responseText] } }] });
-    catch (e) {
-    console.error('Webhook error:', e);
-    return res.json({
-      fulfillmentMessages: [{ text: { text: ["(Webhook) Unexpected error. Check server logs."] } }]
-    });
-  }
-});
+   
 
 // Start server
 const PORT = process.env.PORT || 3000;
