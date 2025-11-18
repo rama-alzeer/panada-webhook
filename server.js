@@ -193,7 +193,7 @@ app.post("/dialogflow-query", async (req, res) => {
     const { token } = await client.getAccessToken();
 
     const response = await fetch(
-      'https://dialogflow.googleapis.com/v2/projects/panda-hinl/agent/sessions/web-user-session:detectIntent',
+  'https://dialogflow.googleapis.com/v2/projects/panda-hinl/agent/sessions/web-user-session:detectIntent',
       {
         method: 'POST',
         headers: {
