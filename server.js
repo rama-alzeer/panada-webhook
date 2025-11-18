@@ -5,8 +5,7 @@ app.use(express.static(__dirname));
 
 app.post("/webhook", (req, res) => {
   try {
-    // Extract values from Dialogflow request
-    const sessionId = req.body.session || "default";   // <-- add this
+    const sessionId = req.body.session || "default";   // ✅ define sessionId
     const originalText = req.body.queryResult.queryText;
     const intent = req.body.queryResult.intent.displayName;
 
