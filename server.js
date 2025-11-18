@@ -183,23 +183,24 @@ app.post("/dialogflow-query", async (req, res) => {
     const token = await getAccessToken();
 
     const response = await fetch(
-      'https://dialogflow.googleapis.com/v2/projects/panda-hinl/agent/sessions/web-user-session:detectIntent',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+  'https://dialogflow.googleapis.com/v2/projects/panada-webhook/agent/sessions/web-user-session:detectIntent',
+  {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      queryInput: {
+        text: {
+          text: req.body.text || 'Hello',
+          languageCode: 'en',
         },
-        body: JSON.stringify({
-          queryInput: {
-            text: {
-              text: req.body.text || 'Hello',
-              languageCode: 'en',
-            },
-          },
-        }),
-      }
-    );
+      },
+    }),
+  }
+);
+
 
     const data = await response.json();
     res.json(data);
