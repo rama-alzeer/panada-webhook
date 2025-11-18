@@ -1,3 +1,19 @@
-# Ignore Google service account JSON
+# Node modules
+node_modules/
+
+# Ignore environment files
+.env
+
+# Ignore service account JSON
 panada-webhook-6c45c5b73a6c.json
+
+# Logs
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
 
