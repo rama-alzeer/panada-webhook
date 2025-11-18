@@ -1,7 +1,56 @@
 const express = require('express');
 const app = express();
-app.use(express.json());
+app.use(express.json());]
 app.use(express.static(__dirname));
+
+app.post("/webhook", (req, res) => {
+  try {
+    // Extract values from Dialogflow request
+    const sessionId = req.body.session || "default";   // <-- add this
+    const originalText = req.body.queryResult.queryText;
+    const intent = req.body.queryResult.intent.displayName;
+
+    let responseText = "I didn't understand. Can you repeat?";
+
+    if (intent === "Default Welcome Intent") {
+      responseText = "Hello! Welcome to Panda Sushi 🍣 How can I help you today?";
+    }
+    else if (originalText.toLowerCase().includes("menu")) {
+      responseText = "Here is our menu: 🍣 Sushi, 🍜 Ramen, 🥟 Dumplings, 🍵 Matcha tea.";
+    }
+    else if (originalText.toLowerCase().includes("order")) {
+      responseText = "Sure! What would you like to order?";
+    }
+    else if (originalText.toLowerCase().includes("hi") || originalText.toLowerCase().includes("hello")) {
+      responseText = "Hi there 👋 How can I help you today?";
+    }
+    else {
+      responseText = "Got it. How can I help with your sushi order?";
+    }
+
+    // Safe logging
+    console.log(
+      "Session:", sessionId,
+      "| Intent:", intent,
+      "| Text:", originalText,
+      "| Cart:", JSON.stringify(carts.get(sessionId) || [])
+    );
+
+    return res.json({
+      fulfillmentMessages: [
+        { text: { text: [responseText] } }
+      ]
+    });
+  } catch (e) {
+    console.error("Webhook error:", e);
+    return res.json({
+      fulfillmentMessages: [
+        { text: { text: ["(Webhook) Unexpected error. Check server logs."] } }
+      ]
+    });
+  }
+});
+
 
 
 // Health checks
