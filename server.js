@@ -3,82 +3,25 @@ const app = express();
 app.use(express.json());
 app.use(express.static(__dirname));
 
-app.post("/webhook", (req, res) => {
-  try {
-    const sessionId = req.body.session || "default";   // ✅ define sessionId
-    const originalText = req.body.queryResult.queryText;
-    const intent = req.body.queryResult.intent.displayName;
-
-    let responseText = "I didn't understand. Can you repeat?";
-
-    if (intent === "Default Welcome Intent") {
-      responseText = "Hello! Welcome to Panda Sushi 🍣 How can I help you today?";
-    }
-    else if (originalText.toLowerCase().includes("menu")) {
-      responseText = "Here is our menu: 🍣 Sushi, 🍜 Ramen, 🥟 Dumplings, 🍵 Matcha tea.";
-    }
-    else if (originalText.toLowerCase().includes("order")) {
-      responseText = "Sure! What would you like to order?";
-    }
-    else if (originalText.toLowerCase().includes("hi") || originalText.toLowerCase().includes("hello")) {
-      responseText = "Hi there 👋 How can I help you today?";
-    }
-    else {
-      responseText = "Got it. How can I help with your sushi order?";
-    }
-
-    // Safe logging
-    console.log(
-      "Session:", sessionId,
-      "| Intent:", intent,
-      "| Text:", originalText,
-      "| Cart:", JSON.stringify(carts.get(sessionId) || [])
-    );
-
-    return res.json({
-      fulfillmentMessages: [
-        { text: { text: [responseText] } }
-      ]
-    });
-  } catch (e) {
-    console.error("Webhook error:", e);
-    return res.json({
-      fulfillmentMessages: [
-        { text: { text: ["(Webhook) Unexpected error. Check server logs."] } }
-      ]
-    });
-  }
-});
-
-
-
-// Health checks
-app.get('/', (_req, res) => res.send('Panada webhook OK'));
-app.get('/webhook', (_req, res) => res.send('Panada webhook endpoint is up (use POST for Dialogflow)'));
-
-// -------- Menu knowledge base --------
+/******************************
+ *  CONSTANTS & KNOWLEDGE BASE
+ ******************************/
 const foodDescriptions = {
-  "sushi roll": "Sushi rolls include rice, seaweed, and fillings like avocado, cucumber, or fish. Vegetarian options available.",
+  "sushi roll": "Sushi rolls include rice, seaweed, and fillings like avocado, cucumber, or fish.",
   "sashimi": "Sashimi is thinly sliced raw fish, served without rice.",
-  "nigiri": "Nigiri is raw fish pressed on rice. It's not cooked.",
-  "miso soup": "Miso soup contains fermented soybean paste, tofu, and seaweed. It's vegan-friendly.",
-  "tempura": "Tempura is deep-fried shrimp or veggies. It's crispy and may be spicy.",
-  "mochi": "Mochi is a rice cake dessert, often filled with ice cream. It may contain gluten and dairy.",
-  "edamame": "Edamame are steamed soybeans. They're vegan, gluten-free, and healthy.",
-  "green tea": "Green tea is a traditional Japanese drink. It's vegan and caffeine-rich."
+  "nigiri": "Nigiri is raw fish pressed on rice.",
+  "miso soup": "Miso soup contains fermented soybean paste, tofu, and seaweed.",
+  "tempura": "Tempura is deep-fried shrimp or veggies.",
+  "mochi": "Mochi is a rice cake dessert, usually filled with ice cream.",
+  "edamame": "Steamed soybeans, vegan and gluten-free.",
+  "green tea": "Traditional Japanese green tea."
 };
-const KNOWN_ITEMS = Object.keys(foodDescriptions);
 
+const KNOWN_ITEMS = Object.keys(foodDescriptions);
 const KNOWN_INGREDIENTS = [
-  'wasabi',
-  'ginger', 'pickled ginger', 'gari',
-  'soy sauce', 'soy', 'soya sauce',
-  'mayo', 'mayonnaise', 'spicy mayo',
-  'spice', 'chili', 'chilli', 'hot',
-  'sugar', 'ice'
+  "wasabi","ginger","pickled ginger","gari","soy sauce","soy","mayo","spicy mayo","chili","sugar"
 ];
 
-// -------- Prices --------
 const PRICES = {
   "sushi roll": 4.50,
   "sashimi": 6.00,
@@ -91,367 +34,264 @@ const PRICES = {
 };
 const CURRENCY = "€";
 
-// -------- In-memory carts (per Dialogflow session) --------
-const carts = new Map(); // sessionId -> [{ item, qty, mods: [{action, ingredient}] }]
+/******************************
+ *  MEMORY PER SESSION
+ ******************************/
+const carts = new Map();      // sessionId → [{item, qty, mods}]
+const details = new Map();    // sessionId → {name, table, pickupTime}
 
+/******************************
+ *  UTILS
+ ******************************/
 function getSessionId(req) {
-  const full = (req.body && req.body.session) ? String(req.body.session) : '';
-  const parts = full.split('/sessions/');
-  return parts[1] || full || 'default';
+  const full = String(req.body.session || "");
+  const parts = full.split("/sessions/");
+  return parts[1] || "default";
 }
-function addToCart(sessionId, item, qty = 1) {
+
+function parseQuantity(params) {
+  const q = params.quantity || params.number || params.amount || 1;
+  return Number(q) || 1;
+}
+
+function parseFood(params, text) {
+  let food = params.food_item || params.item || "";
+  food = String(food).toLowerCase().trim();
+
+  if (!food) {
+    const hit = KNOWN_ITEMS.find(i => text.includes(i));
+    if (hit) return hit;
+  }
+  return food;
+}
+
+function addToCart(sessionId, item, qty) {
   const cart = carts.get(sessionId) || [];
   const row = cart.find(r => r.item === item);
   if (row) row.qty += qty;
   else cart.push({ item, qty, mods: [] });
   carts.set(sessionId, cart);
 }
-function removeFromCart(sessionId, item, qty = null) {
+
+function removeFromCart(sessionId, item, qty) {
   const cart = carts.get(sessionId) || [];
   const idx = cart.findIndex(r => r.item === item);
-  if (idx === -1) return { removed: 0 };
-  if (qty === null || qty >= cart[idx].qty) {
-    const removedQty = cart[idx].qty;
+  if (idx === -1) return 0;
+
+  if (!qty || qty >= cart[idx].qty) {
+    const removed = cart[idx].qty;
     cart.splice(idx, 1);
     carts.set(sessionId, cart);
-    return { removed: removedQty };
-  } else {
-    cart[idx].qty -= qty;
-    carts.set(sessionId, cart);
-    return { removed: qty };
+    return removed;
   }
+  cart[idx].qty -= qty;
+  carts.set(sessionId, cart);
+  return qty;
 }
-function applyModifier(sessionId, itemNameOrNull, action, ingredient) {
+
+function applyModifier(sessionId, item, action, ingredient) {
   const cart = carts.get(sessionId) || [];
-  if (!cart.length) return { ok: false, reason: 'empty' };
-  let row = null;
-  if (itemNameOrNull) {
-    row = cart.find(r => r.item === itemNameOrNull);
-    if (!row) return { ok: false, reason: 'not_found' };
-  } else {
-    row = cart[cart.length - 1]; // last added
-  }
-  row.mods = row.mods || [];
+  if (!cart.length) return { ok: false, reason: "empty" };
+
+  let row = cart.find(r => r.item === item) || cart[cart.length - 1];
+  if (!row) return { ok: false, reason: "not_found" };
+
   row.mods.push({ action, ingredient });
   carts.set(sessionId, cart);
   return { ok: true, item: row.item };
 }
-function linePrice(itemName, qty) {
-  const p = PRICES[itemName] ?? 0;
-  return +(p * qty).toFixed(2);
+
+function linePrice(item, qty) {
+  return +(PRICES[item] * qty).toFixed(2);
 }
+
 function orderTotal(sessionId) {
   const cart = carts.get(sessionId) || [];
-  const sum = cart.reduce((acc, r) => acc + linePrice(r.item, r.qty), 0);
-  return +sum.toFixed(2);
+  return +cart.reduce((s, r) => s + linePrice(r.item, r.qty), 0).toFixed(2);
 }
-function fmtMoney(amount) {
+
+function fmt(amount) {
   return `${CURRENCY}${amount.toFixed(2)}`;
 }
-function cartSummary(sessionId, withLineTotals = true) {
-  const cart = carts.get(sessionId) || [];
-  if (!cart.length) return 'Your cart is empty.';
-  const line = r => {
-    const modsTxt = (r.mods && r.mods.length)
-      ? ` (${r.mods.map(m => `${m.action} ${m.ingredient}`).join(', ')})`
-      : '';
-    const base = `${r.qty} x ${r.item}${modsTxt}`;
-    if (!withLineTotals) return base;
-    return `${base} — ${fmtMoney(linePrice(r.item, r.qty))}`;
-  };
-  return cart.map(line).join(', ');
-}
-// --- Guest details memory per session ---
-const details = new Map(); // sessionId -> { name?: string, table?: string|number, pickupTime?: string }
 
-function setName(sessionId, name) {
-  const d = details.get(sessionId) || {};
-  d.name = name;
-  details.set(sessionId, d);
+function cartSummary(sessionId) {
+  const cart = carts.get(sessionId) || [];
+  if (!cart.length) return "Your cart is empty.";
+
+  return cart
+    .map(r => `${r.qty} x ${r.item}` +
+      (r.mods.length ? ` (${r.mods.map(m => `${m.action} ${m.ingredient}`).join(", ")})` : "") +
+      ` — ${fmt(linePrice(r.item, r.qty))}`)
+    .join(", ");
 }
-function setTable(sessionId, table) {
-  const d = details.get(sessionId) || {};
-  d.table = table;
-  details.set(sessionId, d);
-}
-function setPickupTime(sessionId, t) {
-  const d = details.get(sessionId) || {};
-  d.pickupTime = t;
-  details.set(sessionId, d);
-}
-function getDetails(sessionId) {
-  return details.get(sessionId) || {};
-}
+
 function clearSession(sessionId) {
   carts.delete(sessionId);
   details.delete(sessionId);
 }
 
-// -------- Helper: robust param parsing --------
-function parseQuantity(params) {
-  const raw = params.quantity ?? params.number ?? params.amount ?? params.qty ?? null;
-  if (typeof raw === 'number' && isFinite(raw)) return raw;
-  if (typeof raw === 'string' && raw.trim() !== '' && !isNaN(Number(raw))) return Number(raw);
-  return 1;
-}
-function parseFood(params, originalText) {
-  let rawFood = params.food_item ?? params.item ?? '';
-  // Handle array case
-  if (Array.isArray(rawFood)) rawFood = rawFood[0];
-  let food = String(rawFood).toLowerCase().trim();
-
-  if (!food) {
-    const direct = KNOWN_ITEMS.find(k => originalText.includes(k));
-    if (direct) food = direct;
-    if (!food) {
-      const single = KNOWN_ITEMS.find(k => originalText.includes(k.split(' ').slice(-1)[0]));
-      if (single) food = single;
-    }
-  }
-  return food;
-}
-
-// Simple kitchen simulation
-let kitchenOrders = []; // store orders temporarily
+/******************************
+ *  KITCHEN SIMULATOR
+ ******************************/
+let kitchenOrders = [];
 
 function sendToKitchen(order) {
   console.log("🍳 Sending to kitchen:", order);
-
-  // Add to kitchen queue
   kitchenOrders.push({ order, status: "preparing" });
 
-  // Simulate kitchen preparation
   setTimeout(() => {
-    // Mark as ready
-    kitchenOrders = kitchenOrders.map(o => 
-      o.order === order ? { ...o, status: "ready" } : o
+    kitchenOrders = kitchenOrders.map(o =>
+      o.order.orderNumber === order.orderNumber
+        ? { ...o, status: "ready" }
+        : o
     );
-    console.log("✅ Order ready:", order);
-  }, 5000); // 5 seconds for demo
+    console.log("✅ Order ready:", order.orderNumber);
+  }, 5000);
 }
 
-
-//--- Webhook --------
-// --- Webhook --------
+/******************************
+ *  MAIN WEBHOOK
+ ******************************/
 app.post("/webhook", (req, res) => {
   try {
-    const userText = req.body.queryResult.queryText;
+    const sessionId = getSessionId(req);
     const intent = req.body.queryResult.intent.displayName;
+    const text = req.body.queryResult.queryText.toLowerCase();
+    const params = req.body.queryResult.parameters || {};
 
-    let responseText = "I didn't understand. Can you repeat?";
+    console.log("\n🎯 Intent:", intent, "| Text:", text, "| Session:", sessionId);
 
+    let response = "Okay.";
+
+    /********** SMALL TALK & BASIC RULES **********/
     if (intent === "Default Welcome Intent") {
-      responseText = "Hello! Welcome to Panda Sushi 🍣 How can I help you today?";
+      response = "Hello! Welcome to Panda Sushi 🍣 What would you like today?";
     }
-    else if (userText.toLowerCase().includes("menu")) {
-      responseText = "Here is our menu: 🍣 Sushi, 🍜 Ramen, 🥟 Dumplings, 🍵 Matcha tea.";
+    else if (text.includes("menu")) {
+      response = "Here is our menu: 🍣 Sushi rolls, 🍱 Nigiri, 🍜 Ramen, 🥟 Dumplings, 🍵 Matcha tea.";
     }
-    else if (userText.toLowerCase().includes("order")) {
-      responseText = "Sure! What would you like to order?";
+    else if (text === "hi" || text === "hello") {
+      response = "Hi there 👋 How can I help you today?";
     }
-    else if (userText.toLowerCase().includes("hi") || userText.toLowerCase().includes("hello")) {
-      responseText = "Hi there 👋 How can I help you today?";
+
+    /********** FOOD INFORMATION **********/
+    else if (intent === "Ask.About.Food") {
+      const food = parseFood(params, text);
+      response = foodDescriptions[food]
+        ? `Here's what I know about ${food}: ${foodDescriptions[food]}`
+        : `I don't have information about that item.`;
     }
-    else {
-      responseText = "Got it. How can I help with your sushi order?";
+
+    /********** ADD FOOD **********/
+    else if (intent === "Order.Food") {
+      const food = parseFood(params, text);
+      if (!foodDescriptions[food]) {
+        response = "I couldn't recognize that item. Could you repeat the food name?";
+      } else {
+        const qty = parseQuantity(params);
+        addToCart(sessionId, food, qty);
+        response = `Added ${qty} x ${food}. Current order: ${cartSummary(sessionId)}.`;
+      }
+    }
+
+    /********** REMOVE FOOD **********/
+    else if (intent === "Order.Remove") {
+      const food = parseFood(params, text);
+      const qty = parseQuantity(params);
+
+      const removed = removeFromCart(sessionId, food, qty);
+      response = removed
+        ? `Removed ${removed} x ${food}. Current order: ${cartSummary(sessionId)}.`
+        : `I couldn’t find ${food} in your order.`;
+    }
+
+    /********** MODIFY ORDER **********/
+    else if (intent === "order.modify") {
+      let action = params.modifier_action || (text.includes("no") ? "no" : "");
+      let ingredient = params.ingredient || KNOWN_INGREDIENTS.find(i => text.includes(i));
+      const food = parseFood(params, text);
+
+      if (!action || !ingredient) {
+        response = "Please specify the modifier, e.g. 'no wasabi' or 'extra ginger'.";
+      } else {
+        const out = applyModifier(sessionId, food, action, ingredient);
+        response = out.ok
+          ? `Done — ${action} ${ingredient} on ${out.item}.`
+          : "I couldn't apply that change.";
+      }
+    }
+
+    /********** ORDER SUMMARY **********/
+    else if (intent === "Order.Summary") {
+      response = `Here’s your order: ${cartSummary(sessionId)}. Total: ${fmt(orderTotal(sessionId))}.`;
+    }
+
+    /********** CLEAR ORDER **********/
+    else if (intent === "Order.Clear") {
+      clearSession(sessionId);
+      response = "Your order has been cleared.";
+    }
+
+    /********** NAME **********/
+    else if (intent === "Order.SetName") {
+      const name = params.guest_name || text.split(" ").pop();
+      const d = details.get(sessionId) || {};
+      d.name = name;
+      details.set(sessionId, d);
+      response = `Great! I added the name ${name}.`;
+    }
+
+    /********** TABLE **********/
+    else if (intent === "Order.SetTable") {
+      const table = params.table || text.match(/\d+/)?.[0];
+      const d = details.get(sessionId) || {};
+      d.table = table;
+      details.set(sessionId, d);
+      response = `Got it — table ${table}.`;
+    }
+
+    /********** PICKUP TIME **********/
+    else if (intent === "Order.SetPickupTime") {
+      const t = params.time || params["date-time"] || text;
+      const d = details.get(sessionId) || {};
+      d.pickupTime = t;
+      details.set(sessionId, d);
+      response = `Pickup time set to ${t}.`;
+    }
+
+    /********** CONFIRM **********/
+    else if (intent === "Order.Confirm") {
+      const summary = cartSummary(sessionId);
+      const total = orderTotal(sessionId);
+
+      const orderNumber = Math.floor(Math.random() * 900 + 100);
+      response = `Your order #${orderNumber} is confirmed! 🎉 ${summary}. Total: ${fmt(total)}.`;
+
+      sendToKitchen({ orderNumber, items: carts.get(sessionId), total });
+
+      clearSession(sessionId);
     }
 
     return res.json({
-      fulfillmentMessages: [
-        { text: { text: [responseText] } }
-      ]
+      fulfillmentMessages: [{ text: { text: [response] } }]
     });
-  } catch (e) {
-    console.error("Webhook error:", e);
+
+  } catch (err) {
+    console.error("❌ Webhook error:", err);
     return res.json({
-      fulfillmentMessages: [
-        { text: { text: ["(Webhook) Unexpected error. Check server logs."] } }
-      ]
+      fulfillmentMessages: [{ text: { text: ["Server error."] } }]
     });
   }
 });
 
+/******************************
+ *  HEALTH CHECK ROUTES
+ ******************************/
+app.get("/", (req, res) => res.send("Panda Sushi webhook running ✔️"));
 
-
-    
-
-    // Debug log per request
-    console.log('Session:', sessionId, '| Intent:', intent, '| Text:', originalText, '| Cart:', JSON.stringify(carts.get(sessionId) || []));
-
-    // Detect remove phrasing even if DF misroutes
-    const removeRegex = /\b(remove|delete|take\s*(off|out|away)|cancel|no more|minus|drop|take away)\b/;
-    const isRemovePhrase = removeRegex.test(originalText);
-
-    let responseText = 'Okay.';
-
-    // --- Ask.About.Food ---
-    if (intent === 'Ask.About.Food') {
-      const food = parseFood(params, originalText);
-      const ans = foodDescriptions[food];
-      responseText = ans
-        ? `Here's what I know about ${food}: ${ans}`
-        : `I'm sorry, I don't have information about ${food || 'that item'}.`;
-    }
-
-    // --- Order.Modify ---
-    else if (intent === 'order.modify') {
-      let action = (params.modifier_action || '').toString().toLowerCase().trim(); // 'no' | 'extra' | 'less'
-      let ingredient = (params.ingredient || '').toString().toLowerCase().trim();
-      let item = (params.food_item || '').toString().toLowerCase().trim();
-
-      if (!action) {
-        if (/\b(no|without|hold|skip|remove)\b/.test(originalText)) action = 'no';
-        else if (/\b(extra|add more|double)\b/.test(originalText)) action = 'extra';
-        else if (/\b(less|light|easy on|not too much)\b/.test(originalText)) action = 'less';
-      }
-      if (!ingredient) {
-        const hit = KNOWN_INGREDIENTS
-          .filter(i => originalText.includes(i))
-          .sort((a, b) => b.length - a.length)[0];
-        if (hit) ingredient = hit;
-      }
-      if (!item) {
-        const direct = KNOWN_ITEMS.find(k => originalText.includes(k));
-        if (direct) item = direct;
-      }
-
-      if (!action || !ingredient) {
-        responseText = `Got it. Please specify the change, like "no wasabi" or "extra ginger".`;
-      } else {
-        const out = applyModifier(sessionId, item || null, action, ingredient);
-        if (!out.ok && out.reason === 'empty') {
-          responseText = `Your cart is empty. Add something first, then say a modifier like "no wasabi".`;
-        } else if (!out.ok && out.reason === 'not_found') {
-          responseText = `I couldn't find ${item} in your order. Current order: ${cartSummary(sessionId)}.`;
-        } else {
-          responseText = `Done — ${action} ${ingredient}${out.item ? ` on ${out.item}` : ''}. Current order: ${cartSummary(sessionId)}.`;
-        }
-      }
-    }
-
-    // --- Order.Remove (or misrouted remove phrase) ---
-    else if (intent === 'Order.Remove' || isRemovePhrase) {
-      const food = parseFood(params, originalText);
-      const qtyRaw = params.quantity ?? params.number ?? params.amount ?? params.qty ?? null;
-      const qty = (typeof qtyRaw === 'number' && isFinite(qtyRaw)) ? qtyRaw : (Number(qtyRaw) || null);
-      if (!food) {
-        responseText = `Which item should I remove?`;
-      } else {
-        const { removed } = removeFromCart(sessionId, food, qty);
-        console.log('Cart AFTER remove:', JSON.stringify(carts.get(sessionId) || []));
-        responseText = removed === 0
-          ? `I couldn’t find ${food} in your order. Current order: ${cartSummary(sessionId)}.`
-          : `Removed ${qty ?? removed} x ${food}. Current order: ${cartSummary(sessionId)}.`;
-      }
-    }
-
-    // --- Order.Food ---
-    else if (intent === 'Order.Food') {
-      const food = parseFood(params, originalText);
-      if (!foodDescriptions[food]) {
-        responseText = `I couldn't recognize the item. Could you say the sushi item again?`;
-      } else {
-        const qty = parseQuantity(params);
-        addToCart(sessionId, food, qty);
-        console.log('Cart AFTER add:', JSON.stringify(carts.get(sessionId) || []));
-        const total = orderTotal(sessionId);
-        responseText = `Added ${qty} x ${food} to your order. Current order: ${cartSummary(sessionId)}. Current total: ${fmtMoney(total)}. Would you like anything else?`;
-      }
-    }
-
-    // --- Order.Summary ---
-    else if (intent === 'Order.Summary') {
-      const summary = cartSummary(sessionId);
-      if (summary === 'Your cart is empty.') {
-        responseText = `Your cart is empty. Want to add something?`;
-      } else {
-        const total = orderTotal(sessionId);
-        responseText = `Here’s your current order: ${summary}. Total: ${fmtMoney(total)}.`;
-      }
-    }
-
-    // --- Order.Clear ---
-    else if (intent === 'Order.Clear') {
-      carts.delete(sessionId);
-      responseText = `All set — I cleared your order. Want to start a new one?`;
-    }
-    // --- Order.SetName ---
-else if (intent === 'Order.SetName') {
-  let name = (params.guest_name || params.name || '').toString().trim();
-  // fallback: try to pull first word after "i'm" / "my name is"
-  if (!name) {
-    const m = originalText.match(/\b(i'?m|my name is)\s+([a-z]+)\b/i);
-    if (m) name = m[2];
-  }
-  if (!name) {
-    responseText = `What name should I put on the order?`;
-  } else {
-    setName(sessionId, name.charAt(0).toUpperCase() + name.slice(1));
-    const d = getDetails(sessionId);
-    responseText = `Thanks, ${d.name}! ${cartSummary(sessionId) === 'Your cart is empty.' ? 'Want to add something?' : 'Anything else before we confirm?'}`
-  }
-}
-
-// --- Order.SetTable ---
-else if (intent === 'Order.SetTable') {
-  let table = (params.table !== undefined ? params.table : params.number);
-  if (table === undefined || table === null || table === '') {
-    // try to extract from text (e.g., "table 5")
-    const m = originalText.match(/\btable\s+(\d+)\b/);
-    if (m) table = m[1];
-  }
-  if (table === undefined || table === null || table === '') {
-    responseText = `Which table number are you at?`;
-  } else {
-    setTable(sessionId, String(table));
-    const d = getDetails(sessionId);
-    responseText = `Got it — table ${d.table}. ${cartSummary(sessionId) === 'Your cart is empty.' ? 'Ready to order?' : 'Anything else before we confirm?'}`
-  }
-}
-
-// --- Order.SetPickupTime ---
-else if (intent === 'Order.SetPickupTime') {
-  // accept various sys.* param names
-  const t = (params.pickup_time || params.time || params['date-time'] || '').toString().trim();
-  let when = t;
-  if (!when) {
-    // crude fallback: "in 20 minutes", "at 6 pm"
-    const m = originalText.match(/\b(in\s+\d+\s*(min|mins|minutes|hour|hours))|(at\s+\d+(:\d+)?\s*(am|pm)?)\b/);
-    if (m) when = m[0];
-  }
-  if (!when) {
-    responseText = `When should we have it ready?`;
-  } else {
-    setPickupTime(sessionId, when);
-    const d = getDetails(sessionId);
-    responseText = `Pickup time set for ${d.pickupTime}. ${cartSummary(sessionId) === 'Your cart is empty.' ? 'What would you like to order?' : 'Anything else before we confirm?'}`
-  }
-}
-
-
-    // --- Order.Confirm ---
-else if (intent === 'Order.Confirm') {
-  const summary = cartSummary(sessionId);
-  if (summary === 'Your cart is empty.') {
-    responseText = `You haven’t ordered anything yet. What would you like to have?`;
-  } else {
-    const total = orderTotal(sessionId);
-    const orderNumber = Math.floor(Math.random() * 900 + 100); // random 3-digit number
-    responseText = `Got it! 🐼 Your order #${orderNumber} is confirmed — ${summary}. Total: ${fmtMoney(total)}. The kitchen is preparing it now! 🍣`;
-
-    const orderDetails = {
-      orderNumber,
-      items: carts.get(sessionId),
-      total: total
-    };
-    sendToKitchen(orderDetails);
-    clearSession(sessionId);
-  }
-}
-
-
-   
-
-// Start server
+/******************************
+ *  START SERVER
+ ******************************/
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Panada webhook is live on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Webhook live on port ${PORT}`));
+
